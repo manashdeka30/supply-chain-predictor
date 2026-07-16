@@ -1,5 +1,7 @@
 supplier,on_time_delivery,quality_score,financial_score
-ABC Electronics,92,95,90
+ABC Electronics,95,96,92
 XYZ Components,60,70,65
-Prime Supply,80,82,78
-Global Tech,95,96,92
+Prime Supply,82,80,78
+Global Tech,98,97,95
+Smart Logistics,75,78,72
+Rapid Supply Chain,68,74,70
