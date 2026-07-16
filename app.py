@@ -8,48 +8,98 @@ st.set_page_config(
     layout="wide"
 )
 
+# Load Data
 sales = pd.read_csv("sales_history.csv")
 suppliers = pd.read_csv("supplier_data.csv")
 inventory = pd.read_csv("inventory.csv")
 
+# Risk Calculation
 suppliers["risk_score"] = (
     (100 - suppliers["on_time_delivery"]) * 0.4
     + (100 - suppliers["quality_score"]) * 0.3
     + (100 - suppliers["financial_score"]) * 0.3
 ).round(1)
 
+
 def risk_level(score):
     if score <= 20:
         return "Low"
     elif score <= 40:
         return "Medium"
-    return "High"
+    else:
+        return "High"
+
 
 suppliers["risk_level"] = suppliers["risk_score"].apply(risk_level)
 
-forecast = int(sales["sales"].tail(3).mean() * 1.15)
-inventory_total = inventory["current_stock"].sum()
+# Sidebar Filters
+st.sidebar.header("Filters")
 
-stockout_risk = min(
-    round((forecast / max(inventory_total, 1)) * 100, 1),
-    100
+selected_warehouse = st.sidebar.selectbox(
+    "Warehouse",
+    ["All"] + inventory["warehouse"].unique().tolist()
 )
 
+selected_product = st.sidebar.selectbox(
+    "Product",
+    ["All"] + inventory["product"].unique().tolist()
+)
+
+selected_supplier = st.sidebar.selectbox(
+    "Supplier",
+    ["All"] + suppliers["supplier"].unique().tolist()
+)
+
+# Apply Filters
+filtered_inventory = inventory.copy()
+filtered_suppliers = suppliers.copy()
+filtered_sales = sales.copy()
+
+if selected_warehouse != "All":
+    filtered_inventory = filtered_inventory[
+        filtered_inventory["warehouse"] == selected_warehouse
+    ]
+
+if selected_product != "All":
+    filtered_inventory = filtered_inventory[
+        filtered_inventory["product"] == selected_product
+    ]
+
+    filtered_sales = filtered_sales[
+        filtered_sales["product"] == selected_product
+    ]
+
+if selected_supplier != "All":
+    filtered_suppliers = filtered_suppliers[
+        filtered_suppliers["supplier"] == selected_supplier
+    ]
+
+# KPI Calculations
+inventory_total = filtered_inventory["current_stock"].sum()
+
+if len(filtered_sales) > 0:
+    forecast = int(filtered_sales["sales"].tail(3).mean() * 1.15)
+else:
+    forecast = 0
+
+if inventory_total > 0:
+    stockout_risk = min(
+        round((forecast / inventory_total) * 100, 1),
+        100
+    )
+else:
+    stockout_risk = 0
+
+high_risk_count = len(
+    filtered_suppliers[
+        filtered_suppliers["risk_level"] == "High"
+    ]
+)
+
+# Title
 st.title("📦 AI Powered Supply Chain Demand & Risk Predictor")
 
-with st.sidebar:
-    st.header("Filters")
-
-    selected_warehouse = st.selectbox(
-        "Warehouse",
-        ["All"] + inventory["warehouse"].unique().tolist()
-    )
-
-    selected_supplier = st.selectbox(
-        "Supplier",
-        ["All"] + suppliers["supplier"].tolist()
-    )
-
+# Tabs
 tab1, tab2, tab3, tab4 = st.tabs(
     [
         "Executive Dashboard",
@@ -59,6 +109,9 @@ tab1, tab2, tab3, tab4 = st.tabs(
     ]
 )
 
+# ---------------------------------------------------
+# EXECUTIVE DASHBOARD
+# ---------------------------------------------------
 with tab1:
 
     c1, c2, c3, c4 = st.columns(4)
@@ -75,11 +128,7 @@ with tab1:
 
     c3.metric(
         "High Risk Suppliers",
-        len(
-            suppliers[
-                suppliers["risk_level"] == "High"
-            ]
-        )
+        high_risk_count
     )
 
     c4.metric(
@@ -87,31 +136,46 @@ with tab1:
         stockout_risk
     )
 
-    st.subheader("Inventory Overview")
-    st.dataframe(inventory)
+    st.subheader("Filtered Inventory Overview")
 
-with tab2:
-
-    st.subheader("Historical Demand")
-
-    fig = px.line(
-        sales,
-        x="month",
-        y="sales",
-        color="product",
-        markers=True,
-        title="Demand Trend"
-    )
-
-    st.plotly_chart(
-        fig,
+    st.dataframe(
+        filtered_inventory,
         use_container_width=True
     )
 
-    st.success(
-        f"Predicted Next Month Demand: {forecast} Units"
-    )
+# ---------------------------------------------------
+# DEMAND FORECAST
+# ---------------------------------------------------
+with tab2:
 
+    st.subheader("Demand Forecast Trend")
+
+    if len(filtered_sales) > 0:
+
+        fig = px.line(
+            filtered_sales,
+            x="month",
+            y="sales",
+            color="product",
+            markers=True,
+            title="Historical Demand Trend"
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+        st.success(
+            f"Predicted Next Month Demand: {forecast} Units"
+        )
+
+    else:
+        st.warning("No sales data available for selected filters.")
+
+# ---------------------------------------------------
+# SUPPLIER RISKS
+# ---------------------------------------------------
 with tab3:
 
     st.subheader("Supplier Risk Assessment")
@@ -122,25 +186,36 @@ with tab3:
         "High": "red"
     }
 
-    fig2 = px.bar(
-        suppliers,
-        x="supplier",
-        y="risk_score",
-        color="risk_level",
-        color_discrete_map=color_map,
-        title="Supplier Risk Ranking"
-    )
+    if len(filtered_suppliers) > 0:
 
-    st.plotly_chart(
-        fig2,
-        use_container_width=True
-    )
+        fig2 = px.bar(
+            filtered_suppliers,
+            x="supplier",
+            y="risk_score",
+            color="risk_level",
+            color_discrete_map=color_map,
+            title="Supplier Risk Ranking"
+        )
 
-    st.dataframe(suppliers)
+        st.plotly_chart(
+            fig2,
+            use_container_width=True
+        )
 
+        st.dataframe(
+            filtered_suppliers,
+            use_container_width=True
+        )
+
+    else:
+        st.warning("No supplier data available.")
+
+# ---------------------------------------------------
+# AI COPILOT
+# ---------------------------------------------------
 with tab4:
 
-    st.subheader("Supply Chain AI Copilot")
+    st.subheader("🤖 Supply Chain AI Copilot")
 
     question = st.text_input(
         "Ask a question",
@@ -149,26 +224,43 @@ with tab4:
 
     if st.button("Analyze"):
 
+        risk_status = (
+            "High" if stockout_risk > 70
+            else "Medium" if stockout_risk > 40
+            else "Low"
+        )
+
         recommendation = f"""
 ### AI Analysis
 
-Forecasted Demand: {forecast}
+**Question:** {question}
 
-Current Inventory: {inventory_total}
+### Current Situation
 
-Stockout Risk: {stockout_risk}%
+- Forecasted Demand: **{forecast} Units**
+- Current Inventory: **{inventory_total} Units**
+- Stockout Risk: **{stockout_risk}%**
+- Supplier Risk Level: **{risk_status}**
 
 ### Recommendations
 
 ✅ Increase procurement by 20%
 
-✅ Maintain safety stock for 15 days
+✅ Maintain safety stock for at least 15 days
 
-✅ Prioritize low-risk suppliers
+✅ Prioritize suppliers with Low Risk rating
 
-✅ Monitor warehouse inventory weekly
+✅ Review warehouse inventory every week
 
-✅ Prepare alternate sourcing strategy
+✅ Monitor demand spikes proactively
+
+### Business Impact
+
+Reducing stockout risk can improve order fulfillment rates and reduce revenue loss caused by inventory shortages.
 """
 
         st.markdown(recommendation)
+
+# Footer
+st.markdown("---")
+st.caption("AI Powered Supply Chain Demand & Risk Predictor | Prototype Version")
